@@ -12,7 +12,6 @@ services:
     command:
       - >
         set -e;
-        pip install -e apps/frappe;
         ls -1 apps > sites/apps.txt;
         bench set-config -g db_host $$DB_HOST;
         bench set-config -gp db_port $$DB_PORT;
@@ -57,25 +56,12 @@ services:
       DB_PORT: "3306"
       MYSQL_ROOT_PASSWORD: admin
       MARIADB_ROOT_PASSWORD: admin
-      REDIS_CACHE: redis-cache:6379
-      REDIS_QUEUE: redis-queue:6379
     entrypoint:
       - bash
       - -c
     command:
       - >
         set -e;
-        pip install -e apps/frappe;
-        pip install -e apps/erpnext;
-        echo "Installing custom apps...";
-        for app in apps/*; do
-          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
-              echo "Installing $$app...";
-              pip install -e "$$app";
-            fi
-          fi
-        done;
         wait-for-it -t 120 db:3306;
         wait-for-it -t 120 redis-cache:6379;
         wait-for-it -t 120 redis-queue:6379;
@@ -90,9 +76,13 @@ services:
           fi
         done;
         echo "sites/common_site_config.json found";
+        echo "Creating new site...";
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend --force;
-        bench --site frontend install-app document_management_system;
-        bench --site frontend install-app itsm;
+        echo "Installing document_management_system...";
+        bench --site frontend install-app document_management_system || echo "Warning: Failed to install document_management_system";
+        echo "Installing itsm...";
+        bench --site frontend install-app itsm || echo "Warning: Failed to install itsm";
+        echo "Site creation complete";
     depends_on:
       configurator:
         condition: service_completed_successfully
@@ -121,18 +111,6 @@ services:
       - -c
       - >
         set -e;
-        echo "Installing Frappe & ERPNext...";
-        pip install -e apps/frappe;
-        pip install -e apps/erpnext;
-        echo "Installing Custom Apps...";
-        for app in apps/*; do
-          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
-              echo "Installing $$app...";
-              pip install -e "$$app";
-            fi
-          fi
-        done;
         echo "Starting Development Server...";
         bench serve --port 8000 --host 0.0.0.0 --noreload
     depends_on:
@@ -182,11 +160,9 @@ services:
       UPSTREAM_REAL_IP_RECURSIVE: "off"
       PROXY_READ_TIMEOUT: 120
       CLIENT_MAX_BODY_SIZE: 50m
-      OFF_RECONFIG: "false"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
     ports:
       - "8080:8080"
 
@@ -198,21 +174,10 @@ services:
       restart_policy:
         condition: on-failure
     command:
-      - bash
-      - -c
-      - >
-        set -e;
-        pip install -e apps/frappe;
-        pip install -e apps/erpnext;
-        for app in apps/*; do
-          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
-              echo "Installing $$app...";
-              pip install -e "$$app";
-            fi
-          fi
-        done;
-        bench worker --queue long,default,short
+      - bench
+      - worker
+      - --queue
+      - long,default,short
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
@@ -232,21 +197,10 @@ services:
       restart_policy:
         condition: on-failure
     command:
-      - bash
-      - -c
-      - >
-        set -e;
-        pip install -e apps/frappe;
-        pip install -e apps/erpnext;
-        for app in apps/*; do
-          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
-              echo "Installing $$app...";
-              pip install -e "$$app";
-            fi
-          fi
-        done;
-        bench worker --queue short,default
+      - bench
+      - worker
+      - --queue
+      - short,default
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
@@ -284,21 +238,8 @@ services:
       restart_policy:
         condition: on-failure
     command:
-      - bash
-      - -c
-      - >
-        set -e;
-        pip install -e apps/frappe;
-        pip install -e apps/erpnext;
-        for app in apps/*; do
-          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
-              echo "Installing $$app...";
-              pip install -e "$$app";
-            fi
-          fi
-        done;
-        bench schedule
+      - bench
+      - schedule
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
@@ -328,7 +269,6 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
     depends_on:
       create-site:
         condition: service_completed_successfully
