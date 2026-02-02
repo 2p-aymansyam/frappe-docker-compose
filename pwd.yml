@@ -19,6 +19,8 @@ services:
       - bash
       - -c
       - >
+        pip install -e apps/frappe &&
+        pip install -e apps/erpnext &&
         for app in apps/*; do pip install -e $$app; done;
         gunicorn -b 0.0.0.0:8000 frappe.app:application
 
@@ -68,6 +70,8 @@ services:
       - -c
     command:
       - >
+        pip install -e apps/frappe &&
+        pip install -e apps/erpnext &&
         for app in apps/*; do pip install -e $$app; done;
         wait-for-it -t 120 db:3306;
         wait-for-it -t 120 redis-cache:6379;
@@ -148,6 +152,8 @@ services:
       - bash
       - -c
       - >
+        pip install -e apps/frappe &&
+        pip install -e apps/erpnext &&
         for app in apps/*; do pip install -e $$app; done;
         bench worker --queue long,default,short
     volumes:
@@ -169,6 +175,8 @@ services:
       - bash
       - -c
       - >
+        pip install -e apps/frappe &&
+        pip install -e apps/erpnext &&
         for app in apps/*; do pip install -e $$app; done;
         bench worker --queue short,default
     volumes:
@@ -208,6 +216,8 @@ services:
       - bash
       - -c
       - >
+        pip install -e apps/frappe &&
+        pip install -e apps/erpnext &&
         for app in apps/*; do pip install -e $$app; done;
         bench schedule
     volumes:
