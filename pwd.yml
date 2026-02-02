@@ -1,39 +1,4 @@
 services:
-  backend:
-    build: .
-    image: custom-frappe:latest
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      MYSQL_ROOT_PASSWORD: admin
-      MARIADB_ROOT_PASSWORD: admin
-    command:
-      - bash
-      - -c
-      - >
-        set -e;
-        echo "Installing Frappe & ERPNext...";
-        pip install -e apps/frappe;
-        pip install -e apps/erpnext;
-        echo "Installing Custom Apps...";
-        for app in apps/*; do
-          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-             echo "Installing $$app...";
-             pip install -e $$app;
-          fi
-        done;
-        echo "Starting Development Server...";
-        bench serve --port 8000 --host 0.0.0.0 --noreload
-
   configurator:
     image: custom-frappe:latest
     networks:
@@ -57,6 +22,7 @@ services:
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
         bench set-config -gp developer_mode 1;
         bench set-config -gp server_script_enabled 1;
+        echo "Configuration complete";
     environment:
       DB_HOST: db
       DB_PORT: "3306"
@@ -67,6 +33,13 @@ services:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
       - ./apps:/home/frappe/frappe-bench/apps
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
 
   create-site:
     image: custom-frappe:latest
@@ -79,6 +52,13 @@ services:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
       - ./apps:/home/frappe/frappe-bench/apps
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
     entrypoint:
       - bash
       - -c
@@ -87,9 +67,13 @@ services:
         set -e;
         pip install -e apps/frappe;
         pip install -e apps/erpnext;
+        echo "Installing custom apps...";
         for app in apps/*; do
-          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-             pip install -e $$app;
+          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
+              echo "Installing $$app...";
+              pip install -e "$$app";
+            fi
           fi
         done;
         wait-for-it -t 120 db:3306;
@@ -109,6 +93,51 @@ services:
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend --force;
         bench --site frontend install-app document_management_system;
         bench --site frontend install-app itsm;
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  backend:
+    build: .
+    image: custom-frappe:latest
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+      - ./apps:/home/frappe/frappe-bench/apps
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+    command:
+      - bash
+      - -c
+      - >
+        set -e;
+        echo "Installing Frappe & ERPNext...";
+        pip install -e apps/frappe;
+        pip install -e apps/erpnext;
+        echo "Installing Custom Apps...";
+        for app in apps/*; do
+          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
+              echo "Installing $$app...";
+              pip install -e "$$app";
+            fi
+          fi
+        done;
+        echo "Starting Development Server...";
+        bench serve --port 8000 --host 0.0.0.0 --noreload
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
 
   db:
     image: mariadb:10.6
@@ -137,6 +166,7 @@ services:
     networks:
       - frappe_network
     depends_on:
+      - backend
       - websocket
     deploy:
       restart_policy:
@@ -175,8 +205,11 @@ services:
         pip install -e apps/frappe;
         pip install -e apps/erpnext;
         for app in apps/*; do
-          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-             pip install -e $$app;
+          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
+              echo "Installing $$app...";
+              pip install -e "$$app";
+            fi
           fi
         done;
         bench worker --queue long,default,short
@@ -187,6 +220,9 @@ services:
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
 
   queue-short:
     image: custom-frappe:latest
@@ -203,8 +239,11 @@ services:
         pip install -e apps/frappe;
         pip install -e apps/erpnext;
         for app in apps/*; do
-          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-             pip install -e $$app;
+          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
+              echo "Installing $$app...";
+              pip install -e "$$app";
+            fi
           fi
         done;
         bench worker --queue short,default
@@ -215,6 +254,9 @@ services:
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
 
   redis-queue:
     image: redis:6.2-alpine
@@ -249,8 +291,11 @@ services:
         pip install -e apps/frappe;
         pip install -e apps/erpnext;
         for app in apps/*; do
-          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-             pip install -e $$app;
+          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
+              echo "Installing $$app...";
+              pip install -e "$$app";
+            fi
           fi
         done;
         bench schedule
@@ -258,6 +303,9 @@ services:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
       - ./apps:/home/frappe/frappe-bench/apps
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
 
   websocket:
     image: custom-frappe:latest
@@ -281,6 +329,9 @@ services:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
       - ./apps:/home/frappe/frappe-bench/apps
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
 
 volumes:
   db-data:
