@@ -19,10 +19,18 @@ services:
       - bash
       - -c
       - >
+        echo "Installing Frappe & ERPNext..." &&
         pip install -e apps/frappe &&
         pip install -e apps/erpnext &&
-        for app in apps/*; do pip install -e $$app; done;
-        gunicorn -b 0.0.0.0:8000 frappe.app:application
+        echo "Installing Custom Apps..." &&
+        for app in apps/*; do
+          if [ -d "$$app" ] && [ -f "$$app/pyproject.toml" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+            echo "Installing $$app...";
+            pip install -e $$app;
+          fi
+        done &&
+        echo "Starting Development Server..." &&
+        bench serve --port 8000 --host 0.0.0.0 --noreload
 
   configurator:
     image: frappe/erpnext:v15.95.1
@@ -36,6 +44,7 @@ services:
       - -c
     command:
       - >
+        pip install -e apps/frappe &&
         ls -1 apps > sites/apps.txt;
         bench set-config -g db_host $$DB_HOST;
         bench set-config -gp db_port $$DB_PORT;
@@ -43,6 +52,8 @@ services:
         bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
         bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
+        bench set-config -gp developer_mode 1; 
+        bench set-config -gp server_script_enabled 1;
     environment:
       DB_HOST: db
       DB_PORT: "3306"
@@ -70,16 +81,11 @@ services:
       - -c
     command:
       - >
-        pip install -e apps/frappe &&
-        pip install -e apps/erpnext &&
-        for app in apps/*; do pip install -e $$app; done;
         wait-for-it -t 120 db:3306;
         wait-for-it -t 120 redis-cache:6379;
         wait-for-it -t 120 redis-queue:6379;
         export start=`date +%s`;
-        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
-          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
-          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
+        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]];
         do
           echo "Waiting for sites/common_site_config.json to be created";
           sleep 5;
@@ -90,6 +96,8 @@ services:
         done;
         echo "sites/common_site_config.json found";
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
+        bench --site frontend install-app document-management-system;
+        bench --site frontend install-app itsm;
 
   db:
     image: mariadb:10.6
@@ -106,7 +114,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --skip-character-set-client-handshake
-      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
+      - --skip-innodb-read-only-compressed
     environment:
       MYSQL_ROOT_PASSWORD: admin
       MARIADB_ROOT_PASSWORD: admin
@@ -133,7 +141,7 @@ services:
       UPSTREAM_REAL_IP_RECURSIVE: "off"
       PROXY_READ_TIMEOUT: 120
       CLIENT_MAX_BODY_SIZE: 50m
-      OFF_RECONFIG: "false" # Forces Nginx to refresh assets
+      OFF_RECONFIG: "false"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
@@ -152,9 +160,6 @@ services:
       - bash
       - -c
       - >
-        pip install -e apps/frappe &&
-        pip install -e apps/erpnext &&
-        for app in apps/*; do pip install -e $$app; done;
         bench worker --queue long,default,short
     volumes:
       - sites:/home/frappe/frappe-bench/sites
@@ -175,9 +180,6 @@ services:
       - bash
       - -c
       - >
-        pip install -e apps/frappe &&
-        pip install -e apps/erpnext &&
-        for app in apps/*; do pip install -e $$app; done;
         bench worker --queue short,default
     volumes:
       - sites:/home/frappe/frappe-bench/sites
@@ -216,9 +218,6 @@ services:
       - bash
       - -c
       - >
-        pip install -e apps/frappe &&
-        pip install -e apps/erpnext &&
-        for app in apps/*; do pip install -e $$app; done;
         bench schedule
     volumes:
       - sites:/home/frappe/frappe-bench/sites
@@ -233,8 +232,12 @@ services:
       restart_policy:
         condition: on-failure
     command:
-      - node
-      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+      - bash
+      - -c
+      - >
+        cd /home/frappe/frappe-bench/apps/frappe &&
+        npm install &&
+        node /home/frappe/frappe-bench/apps/frappe/socketio.js
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
