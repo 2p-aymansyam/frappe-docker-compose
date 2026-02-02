@@ -34,6 +34,6 @@ RUN for app in apps/*; do \
 
 # Verify installed apps
 RUN echo "Installed custom apps:" && \
-    pip list | grep -E "document-management-system|itsm" || echo "No custom apps detected"
+    pip list || echo "No custom apps detected"
 
 WORKDIR /home/frappe/frappe-bench
