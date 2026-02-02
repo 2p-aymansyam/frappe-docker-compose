@@ -1,6 +1,22 @@
 services:
+  backend:
+    image: frappe/erpnext:v15.95.2
+    networks:
+      - frappe_network
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: admin
+      MARIADB_ROOT_PASSWORD: admin
+
   configurator:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.2
     networks:
       - frappe_network
     deploy:
@@ -11,7 +27,6 @@ services:
       - -c
     command:
       - >
-        set -e;
         ls -1 apps > sites/apps.txt;
         bench set-config -g db_host $$DB_HOST;
         bench set-config -gp db_port $$DB_PORT;
@@ -19,9 +34,6 @@ services:
         bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
         bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
-        bench set-config -gp developer_mode 1;
-        bench set-config -gp server_script_enabled 1;
-        echo "Configuration complete";
     environment:
       DB_HOST: db
       DB_PORT: "3306"
@@ -31,17 +43,9 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
-    depends_on:
-      db:
-        condition: service_healthy
-      redis-cache:
-        condition: service_started
-      redis-queue:
-        condition: service_started
 
   create-site:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.2
     networks:
       - frappe_network
     deploy:
@@ -50,23 +54,18 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      MYSQL_ROOT_PASSWORD: admin
-      MARIADB_ROOT_PASSWORD: admin
     entrypoint:
       - bash
       - -c
     command:
       - >
-        set -e;
         wait-for-it -t 120 db:3306;
         wait-for-it -t 120 redis-cache:6379;
         wait-for-it -t 120 redis-queue:6379;
         export start=`date +%s`;
-        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]];
+        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
         do
           echo "Waiting for sites/common_site_config.json to be created";
           sleep 5;
@@ -76,46 +75,7 @@ services:
           fi
         done;
         echo "sites/common_site_config.json found";
-        echo "Creating new site...";
-        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend --force;
-        echo "Installing document_management_system...";
-        bench --site frontend install-app document_management_system || echo "Warning: Failed to install document_management_system";
-        echo "Installing itsm...";
-        bench --site frontend install-app itsm || echo "Warning: Failed to install itsm";
-        echo "Site creation complete";
-    depends_on:
-      configurator:
-        condition: service_completed_successfully
-
-  backend:
-    build: .
-    image: custom-frappe:latest
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      MYSQL_ROOT_PASSWORD: admin
-      MARIADB_ROOT_PASSWORD: admin
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-    command:
-      - bash
-      - -c
-      - >
-        set -e;
-        echo "Starting Development Server...";
-        bench serve --port 8000 --host 0.0.0.0 --noreload
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
 
   db:
     image: mariadb:10.6
@@ -132,7 +92,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --skip-character-set-client-handshake
-      - --skip-innodb-read-only-compressed
+      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
     environment:
       MYSQL_ROOT_PASSWORD: admin
       MARIADB_ROOT_PASSWORD: admin
@@ -140,11 +100,10 @@ services:
       - db-data:/var/lib/mysql
 
   frontend:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.2
     networks:
       - frappe_network
     depends_on:
-      - backend
       - websocket
     deploy:
       restart_policy:
@@ -167,7 +126,7 @@ services:
       - "8080:8080"
 
   queue-long:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.2
     networks:
       - frappe_network
     deploy:
@@ -181,16 +140,12 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
 
   queue-short:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.2
     networks:
       - frappe_network
     deploy:
@@ -204,13 +159,9 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
 
   redis-queue:
     image: redis:6.2-alpine
@@ -231,7 +182,7 @@ services:
         condition: on-failure
 
   scheduler:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.2
     networks:
       - frappe_network
     deploy:
@@ -243,35 +194,23 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
 
   websocket:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.2
     networks:
       - frappe_network
     deploy:
       restart_policy:
         condition: on-failure
     command:
-      - bash
-      - -c
-      - >
-        set -e;
-        cd /home/frappe/frappe-bench/apps/frappe;
-        npm install;
-        node /home/frappe/frappe-bench/apps/frappe/socketio.js
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
 
 volumes:
   db-data:
