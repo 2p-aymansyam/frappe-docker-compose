@@ -1,6 +1,7 @@
 services:
   backend:
-    image: frappe/erpnext:v15.95.1
+    build: .
+    image: custom-frappe:latest
     networks:
       - frappe_network
     deploy:
@@ -19,21 +20,22 @@ services:
       - bash
       - -c
       - >
-        echo "Installing Frappe & ERPNext..." &&
-        pip install -e apps/frappe &&
-        pip install -e apps/erpnext &&
-        echo "Installing Custom Apps..." &&
+        set -e;
+        echo "Installing Frappe & ERPNext...";
+        pip install -e apps/frappe;
+        pip install -e apps/erpnext;
+        echo "Installing Custom Apps...";
         for app in apps/*; do
-          if [ -d "$$app" ] && [ -f "$$app/pyproject.toml" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-            echo "Installing $$app...";
-            pip install -e $$app;
+          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+             echo "Installing $$app...";
+             pip install -e $$app;
           fi
-        done &&
-        echo "Starting Development Server..." &&
+        done;
+        echo "Starting Development Server...";
         bench serve --port 8000 --host 0.0.0.0 --noreload
 
   configurator:
-    image: frappe/erpnext:v15.95.1
+    image: custom-frappe:latest
     networks:
       - frappe_network
     deploy:
@@ -44,7 +46,8 @@ services:
       - -c
     command:
       - >
-        pip install -e apps/frappe &&
+        set -e;
+        pip install -e apps/frappe;
         ls -1 apps > sites/apps.txt;
         bench set-config -g db_host $$DB_HOST;
         bench set-config -gp db_port $$DB_PORT;
@@ -52,7 +55,7 @@ services:
         bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
         bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
-        bench set-config -gp developer_mode 1; 
+        bench set-config -gp developer_mode 1;
         bench set-config -gp server_script_enabled 1;
     environment:
       DB_HOST: db
@@ -66,7 +69,7 @@ services:
       - ./apps:/home/frappe/frappe-bench/apps
 
   create-site:
-    image: frappe/erpnext:v15.95.1
+    image: custom-frappe:latest
     networks:
       - frappe_network
     deploy:
@@ -81,6 +84,14 @@ services:
       - -c
     command:
       - >
+        set -e;
+        pip install -e apps/frappe;
+        pip install -e apps/erpnext;
+        for app in apps/*; do
+          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+             pip install -e $$app;
+          fi
+        done;
         wait-for-it -t 120 db:3306;
         wait-for-it -t 120 redis-cache:6379;
         wait-for-it -t 120 redis-queue:6379;
@@ -95,8 +106,8 @@ services:
           fi
         done;
         echo "sites/common_site_config.json found";
-        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
-        bench --site frontend install-app document-management-system;
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend --force;
+        bench --site frontend install-app document_management_system;
         bench --site frontend install-app itsm;
 
   db:
@@ -122,7 +133,7 @@ services:
       - db-data:/var/lib/mysql
 
   frontend:
-    image: frappe/erpnext:v15.95.1
+    image: custom-frappe:latest
     networks:
       - frappe_network
     depends_on:
@@ -150,7 +161,7 @@ services:
       - "8080:8080"
 
   queue-long:
-    image: frappe/erpnext:v15.95.1
+    image: custom-frappe:latest
     networks:
       - frappe_network
     deploy:
@@ -160,6 +171,14 @@ services:
       - bash
       - -c
       - >
+        set -e;
+        pip install -e apps/frappe;
+        pip install -e apps/erpnext;
+        for app in apps/*; do
+          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+             pip install -e $$app;
+          fi
+        done;
         bench worker --queue long,default,short
     volumes:
       - sites:/home/frappe/frappe-bench/sites
@@ -170,7 +189,7 @@ services:
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
 
   queue-short:
-    image: frappe/erpnext:v15.95.1
+    image: custom-frappe:latest
     networks:
       - frappe_network
     deploy:
@@ -180,6 +199,14 @@ services:
       - bash
       - -c
       - >
+        set -e;
+        pip install -e apps/frappe;
+        pip install -e apps/erpnext;
+        for app in apps/*; do
+          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+             pip install -e $$app;
+          fi
+        done;
         bench worker --queue short,default
     volumes:
       - sites:/home/frappe/frappe-bench/sites
@@ -208,7 +235,7 @@ services:
         condition: on-failure
 
   scheduler:
-    image: frappe/erpnext:v15.95.1
+    image: custom-frappe:latest
     networks:
       - frappe_network
     deploy:
@@ -218,6 +245,14 @@ services:
       - bash
       - -c
       - >
+        set -e;
+        pip install -e apps/frappe;
+        pip install -e apps/erpnext;
+        for app in apps/*; do
+          if [ -d "$$app" ] && { [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; } && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
+             pip install -e $$app;
+          fi
+        done;
         bench schedule
     volumes:
       - sites:/home/frappe/frappe-bench/sites
@@ -225,7 +260,7 @@ services:
       - ./apps:/home/frappe/frappe-bench/apps
 
   websocket:
-    image: frappe/erpnext:v15.95.1
+    image: custom-frappe:latest
     networks:
       - frappe_network
     deploy:
@@ -235,8 +270,9 @@ services:
       - bash
       - -c
       - >
-        cd /home/frappe/frappe-bench/apps/frappe &&
-        npm install &&
+        set -e;
+        cd /home/frappe/frappe-bench/apps/frappe;
+        npm install;
         node /home/frappe/frappe-bench/apps/frappe/socketio.js
     environment:
       FRAPPE_REDIS_CACHE: redis://redis-cache:6379
