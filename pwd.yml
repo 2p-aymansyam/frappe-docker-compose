@@ -7,10 +7,15 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
+
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      # Mount host apps folder
       - ./apps:/home/frappe/frappe-bench/apps
+      # Mask core apps to use container data instead of host data
+      - /home/frappe/frappe-bench/apps/frappe
+      - /home/frappe/frappe-bench/apps/erpnext
     environment:
       DB_HOST: db
       DB_PORT: "3306"
@@ -18,7 +23,7 @@ services:
       MARIADB_ROOT_PASSWORD: admin
 
   configurator:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.1
     networks:
       - frappe_network
     deploy:
@@ -36,6 +41,7 @@ services:
         bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
         bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
+        echo "Completed"
     environment:
       DB_HOST: db
       DB_PORT: "3306"
@@ -45,10 +51,9 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
 
   create-site:
-    image: custom-frappe:latest
+    image: frappe/erpnext:v15.95.1
     networks:
       - frappe_network
     deploy:
@@ -57,7 +62,6 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
     entrypoint:
       - bash
       - -c
@@ -80,16 +84,6 @@ services:
         done;
         echo "sites/common_site_config.json found";
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
-        echo "Installing custom apps to site...";
-        for app in apps/*; do
-          if [ -d "$$app" ] && [ "$$app" != "apps/frappe" ] && [ "$$app" != "apps/erpnext" ]; then
-            if [ -f "$$app/pyproject.toml" ] || [ -f "$$app/setup.py" ]; then
-              app_name=$$(basename $$app);
-              echo "Installing $$app_name to site...";
-              bench --site frontend install-app $$app_name || echo "Warning: Failed to install $$app_name to site";
-            fi
-          fi
-        done;
         echo "Site creation complete";
 
   db:
@@ -138,48 +132,10 @@ services:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
       - ./apps:/home/frappe/frappe-bench/apps
+      - /home/frappe/frappe-bench/apps/frappe
+      - /home/frappe/frappe-bench/apps/erpnext
     ports:
       - "8080:8080"
-
-  queue-long:
-    image: custom-frappe:latest
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - worker
-      - --queue
-      - long,default,short
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-
-  queue-short:
-    image: custom-frappe:latest
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - worker
-      - --queue
-      - short,default
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
 
   redis-queue:
     image: redis:6.2-alpine
@@ -198,21 +154,6 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
-
-  scheduler:
-    image: custom-frappe:latest
-    networks:
-      - frappe_network
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - schedule
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-      - ./apps:/home/frappe/frappe-bench/apps
 
   websocket:
     image: custom-frappe:latest
@@ -236,6 +177,8 @@ services:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
       - ./apps:/home/frappe/frappe-bench/apps
+      - /home/frappe/frappe-bench/apps/frappe
+      - /home/frappe/frappe-bench/apps/erpnext
 
 volumes:
   db-data:
