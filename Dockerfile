@@ -19,21 +19,21 @@ WORKDIR /home/frappe/frappe-bench
 COPY --chown=frappe:frappe ./apps /home/frappe/frappe-bench/apps
 
 # Install all custom apps dynamically
-# This will skip frappe and erpnext (already installed in base image)
-# and install any other apps found in the apps directory
 RUN for app in apps/*; do \
       if [ -d "$app" ] && [ "$app" != "apps/frappe" ] && [ "$app" != "apps/erpnext" ]; then \
+        app_name=$(basename "$app"); \
         if [ -f "$app/pyproject.toml" ] || [ -f "$app/setup.py" ]; then \
-          echo "Installing $app..."; \
-          pip install --no-cache-dir -e "$app" || echo "Warning: Failed to install $app"; \
-        else \
-          echo "Skipping $app (no pyproject.toml or setup.py found)"; \
+          echo "Installing $app_name..."; \
+          pip install --no-cache-dir -e "$app"; \
+          # Register the app name so 'bench' knows it exists
+          printf "\n%s\n" "$app_name" >> /home/frappe/frappe-bench/sites/apps.txt; \
         fi \
       fi \
     done
 
+RUN sed -i '/^$/d' /home/frappe/frappe-bench/sites/apps.txt
+
 # Verify installed apps
-RUN echo "Installed custom apps:" && \
-    pip list || echo "No custom apps detected"
+RUN echo "Custom apps in sites/apps.txt:" && cat /home/frappe/frappe-bench/sites/apps.txt
 
 WORKDIR /home/frappe/frappe-bench

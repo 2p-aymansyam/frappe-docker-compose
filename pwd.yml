@@ -1,13 +1,17 @@
 services:
   backend:
     build: .
-    image: custom-frappe:latest
+    image: custom-frappe
     networks:
       - frappe_network
     deploy:
       restart_policy:
         condition: on-failure
-
+    command:
+      - bench
+      - serve
+      - --port
+      - "8000"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
@@ -23,7 +27,7 @@ services:
       MARIADB_ROOT_PASSWORD: admin
 
   configurator:
-    image: frappe/erpnext:v15.95.1
+    image: custom-frappe
     networks:
       - frappe_network
     deploy:
@@ -34,7 +38,6 @@ services:
       - -c
     command:
       - >
-        ls -1 apps > sites/apps.txt;
         bench set-config -g db_host $$DB_HOST;
         bench set-config -gp db_port $$DB_PORT;
         bench set-config -g redis_cache "redis://$$REDIS_CACHE";
@@ -53,7 +56,8 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   create-site:
-    image: frappe/erpnext:v15.95.1
+    build: .
+    image: custom-frappe
     networks:
       - frappe_network
     deploy:
@@ -85,6 +89,16 @@ services:
         echo "sites/common_site_config.json found";
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
         echo "Site creation complete";
+        echo "Installing apps from apps.txt...";
+        # This loop reads the apps.txt file we generated in the Dockerfile
+        # and installs erpnext + all custom apps onto the site
+        for app in $(cat sites/apps.txt); do
+          if [ "$app" != "frappe" ]; then
+            echo "Installing $app onto site...";
+            bench --site frontend install-app "$app";
+          fi
+        done;
+        echo "Site creation and dynamic app installation complete";
 
   db:
     image: mariadb:10.6
@@ -109,7 +123,8 @@ services:
       - db-data:/var/lib/mysql
 
   frontend:
-    image: custom-frappe:latest
+    build: .
+    image: custom-frappe
     networks:
       - frappe_network
     depends_on:
@@ -137,6 +152,20 @@ services:
     ports:
       - "8080:8080"
 
+  watch:
+    build: .
+    image: custom-frappe
+    networks:
+      - frappe_network
+    command:
+      - bench
+      - watch
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - ./apps:/home/frappe/frappe-bench/apps
+      - /home/frappe/frappe-bench/apps/frappe
+      - /home/frappe/frappe-bench/apps/erpnext
+
   redis-queue:
     image: redis:6.2-alpine
     networks:
@@ -156,7 +185,8 @@ services:
         condition: on-failure
 
   websocket:
-    image: custom-frappe:latest
+    build: .
+    image: custom-frappe
     networks:
       - frappe_network
     deploy:
