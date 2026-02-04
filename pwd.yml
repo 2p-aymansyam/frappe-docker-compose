@@ -7,17 +7,25 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
+    entrypoint:
+      - bash
+      - -c
     command:
-      - bench
-      - serve
-      - --port
-      - "8000"
+      - >
+        for app in apps/*; do
+          if [ -d "$app" ] && [ "$app" != "apps/frappe" ] && [ "$app" != "apps/erpnext" ]; then
+            app_name=$(basename "$app");
+            if [ -f "$app/pyproject.toml" ] || [ -f "$app/setup.py" ]; then
+              echo "Installing $app_name...";
+              pip install --no-cache-dir -e "$app";
+            fi
+          fi
+        done;
+        bench serve --port 8000
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      # Mount host apps folder
       - ./apps:/home/frappe/frappe-bench/apps
-      # Mask core apps to use container data instead of host data
       - /home/frappe/frappe-bench/apps/frappe
       - /home/frappe/frappe-bench/apps/erpnext
     environment:
@@ -90,8 +98,6 @@ services:
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
         echo "Site creation complete";
         echo "Installing apps from apps.txt...";
-        # This loop reads the apps.txt file we generated in the Dockerfile
-        # and installs erpnext + all custom apps onto the site
         for app in $(cat sites/apps.txt); do
           if [ "$app" != "frappe" ]; then
             echo "Installing $app onto site...";
@@ -132,8 +138,21 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
+    entrypoint:
+      - bash
+      - -c
     command:
-      - nginx-entrypoint.sh
+      - >
+        for app in apps/*; do
+          if [ -d "$app" ] && [ "$app" != "apps/frappe" ] && [ "$app" != "apps/erpnext" ]; then
+            app_name=$(basename "$app");
+            if [ -f "$app/pyproject.toml" ] || [ -f "$app/setup.py" ]; then
+              echo "Installing $app_name...";
+              pip install --no-cache-dir -e "$app";
+            fi
+          fi
+        done;
+        nginx-entrypoint.sh
     environment:
       BACKEND: backend:8000
       FRAPPE_SITE_NAME_HEADER: frontend
@@ -157,9 +176,21 @@ services:
     image: custom-frappe
     networks:
       - frappe_network
+    entrypoint:
+      - bash
+      - -c
     command:
-      - bench
-      - watch
+      - >
+        for app in apps/*; do
+          if [ -d "$app" ] && [ "$app" != "apps/frappe" ] && [ "$app" != "apps/erpnext" ]; then
+            app_name=$(basename "$app");
+            if [ -f "$app/pyproject.toml" ] || [ -f "$app/setup.py" ]; then
+              echo "Installing $app_name...";
+              pip install --no-cache-dir -e "$app";
+            fi
+          fi
+        done;
+        bench watch
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - ./apps:/home/frappe/frappe-bench/apps
@@ -192,9 +223,10 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
-    command:
+    entrypoint:
       - bash
       - -c
+    command:
       - >
         set -e;
         cd /home/frappe/frappe-bench/apps/frappe;

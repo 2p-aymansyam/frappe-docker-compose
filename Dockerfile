@@ -2,7 +2,6 @@ FROM frappe/erpnext:v15.95.1
 
 USER root
 
-# Install system dependencies required for building Python packages
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
@@ -12,28 +11,16 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 USER frappe
-
 WORKDIR /home/frappe/frappe-bench
 
-# Copy all apps directory
-COPY --chown=frappe:frappe ./apps /home/frappe/frappe-bench/apps
+# Just create the apps.txt dynamically - don't pip install yet
+COPY --chown=frappe:frappe ./apps /tmp/apps_copy
 
-# Install all custom apps dynamically
-RUN for app in apps/*; do \
-      if [ -d "$app" ] && [ "$app" != "apps/frappe" ] && [ "$app" != "apps/erpnext" ]; then \
+RUN for app in /tmp/apps_copy/*; do \
+      if [ -d "$app" ] && [ "$app" != "/tmp/apps_copy/frappe" ] && [ "$app" != "/tmp/apps_copy/erpnext" ]; then \
         app_name=$(basename "$app"); \
-        if [ -f "$app/pyproject.toml" ] || [ -f "$app/setup.py" ]; then \
-          echo "Installing $app_name..."; \
-          pip install --no-cache-dir -e "$app"; \
-          # Register the app name so 'bench' knows it exists
-          printf "\n%s\n" "$app_name" >> /home/frappe/frappe-bench/sites/apps.txt; \
-        fi \
+        printf "%s\n" "$app_name" >> /home/frappe/frappe-bench/sites/apps.txt; \
       fi \
-    done
-
-RUN sed -i '/^$/d' /home/frappe/frappe-bench/sites/apps.txt
-
-# Verify installed apps
-RUN echo "Custom apps in sites/apps.txt:" && cat /home/frappe/frappe-bench/sites/apps.txt
-
-WORKDIR /home/frappe/frappe-bench
+    done && \
+    sed -i '/^$/d' /home/frappe/frappe-bench/sites/apps.txt && \
+    rm -rf /tmp/apps_copy
