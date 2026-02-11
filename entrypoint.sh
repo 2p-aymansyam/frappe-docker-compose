@@ -62,5 +62,8 @@ fi
 echo "Generating Procfile for local development..."
 bench setup procfile
 
+# Remove the Redis lines from the Procfile so Honcho doesn't try to run them
+sed -i '/redis/d' Procfile
+
 echo "Starting Frappe Developer Environment..."
 exec bench start
