@@ -82,36 +82,52 @@ services:
       - bash
       - -c
     command:
-      - >
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
+      - |
+        wait-for-it -t 120 db:3306
+        wait-for-it -t 120 redis-cache:6379
+        wait-for-it -t 120 redis-queue:6379
         
-        # 1. GENERATE APPS.TXT AT RUNTIME (Crucial Change)
-        ls -1 apps | grep -vxE 'frappe|erpnext' > sites/apps.txt;
-        echo "Generated apps.txt with: $(cat sites/apps.txt)";
-
-        export start=`date +%s`;
+        # 1. Safely initialize apps.txt with core apps
+        echo "frappe" > sites/apps.txt
+        echo "erpnext" >> sites/apps.txt
+        
+        # 2. Install custom apps into the container's Python environment
+        for app in apps/*; do
+          if [ -d "$app" ] && [ "$app" != "apps/frappe" ] && [ "$app" != "apps/erpnext" ]; then
+            app_name=$(basename "$app")
+            if [ -f "$app/pyproject.toml" ] || [ -f "$app/setup.py" ]; then
+              echo "Pip installing $app_name..."
+              pip install --no-cache-dir -e "$app"
+              echo "$app_name" >> sites/apps.txt
+            fi
+          fi
+        done
+        
+        export start=`date +%s`
         until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
           [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
           [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
         do
-          echo "Waiting for sites/common_site_config.json...";
-          sleep 5;
-        done;
-
-        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
+          echo "Waiting for sites/common_site_config.json..."
+          sleep 5
+        done
         
-        echo "Installing custom apps...";
-        for app in $(cat sites/apps.txt); do
-          # Clean potential Windows line endings and check if empty
-          app=$(echo $app | tr -d '\r');
-          if [ -n "$app" ]; then
-            echo "Installing $app onto site...";
-            bench --site frontend install-app "$app";
+        # 3. Create the site and install ERPNext
+        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend
+        
+        # 4. Dynamically install the custom apps onto the site
+        echo "Installing custom apps onto site..."
+        for app in apps/*; do
+          if [ -d "$app" ] && [ "$app" != "apps/frappe" ] && [ "$app" != "apps/erpnext" ]; then
+            app_name=$(basename "$app")
+            if [ -f "$app/pyproject.toml" ] || [ -f "$app/setup.py" ]; then
+              echo "Installing $app_name onto frontend site..."
+              bench --site frontend install-app "$app_name"
+            fi
           fi
-        done;
-        echo "Installation complete";
+        done
+        
+        echo "Installation complete"
   db:
     image: mariadb:10.6
     networks:
