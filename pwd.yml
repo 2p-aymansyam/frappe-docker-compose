@@ -74,6 +74,10 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
+      - ./apps:/home/frappe/frappe-bench/apps # Ensure apps are mounted here too
+      - /home/frappe/frappe-bench/apps/frappe
+      - /home/frappe/frappe-bench/apps/erpnext 
+
     entrypoint:
       - bash
       - -c
@@ -82,30 +86,32 @@ services:
         wait-for-it -t 120 db:3306;
         wait-for-it -t 120 redis-cache:6379;
         wait-for-it -t 120 redis-queue:6379;
+        
+        # 1. GENERATE APPS.TXT AT RUNTIME (Crucial Change)
+        ls -1 apps | grep -vxE 'frappe|erpnext' > sites/apps.txt;
+        echo "Generated apps.txt with: $(cat sites/apps.txt)";
+
         export start=`date +%s`;
         until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
           [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
           [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
         do
-          echo "Waiting for sites/common_site_config.json to be created";
+          echo "Waiting for sites/common_site_config.json...";
           sleep 5;
-          if (( `date +%s`-start > 120 )); then
-            echo "could not find sites/common_site_config.json with required keys";
-            exit 1
-          fi
         done;
-        echo "sites/common_site_config.json found";
+
         bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
-        echo "Site creation complete";
-        echo "Installing apps from apps.txt...";
+        
+        echo "Installing custom apps...";
         for app in $(cat sites/apps.txt); do
-          if [ "$app" != "frappe" ]; then
+          # Clean potential Windows line endings and check if empty
+          app=$(echo $app | tr -d '\r');
+          if [ -n "$app" ]; then
             echo "Installing $app onto site...";
             bench --site frontend install-app "$app";
           fi
         done;
-        echo "Site creation and dynamic app installation complete";
-
+        echo "Installation complete";
   db:
     image: mariadb:10.6
     networks:
