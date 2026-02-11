@@ -30,4 +30,5 @@ venv
 node_modules
 
 # Custom Apps
-/apps
+/apps/*
+!/apps/README

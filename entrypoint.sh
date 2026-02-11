@@ -7,16 +7,14 @@ while ! mysqladmin ping -h "$DB_HOST" -u root -padmin --silent; do
 done
 
 # 1. Setup Common Site Config for Development
-if [ ! -f "sites/common_site_config.json" ]; then
-    echo "Configuring common_site_config.json..."
-    bench set-config -g db_host "$DB_HOST"
-    bench set-config -g redis_cache "redis://$REDIS_CACHE:6379"
-    bench set-config -g redis_queue "redis://$REDIS_QUEUE:6379"
-    bench set-config -g redis_socketio "redis://$REDIS_QUEUE:6379"
-    
-    # CRITICAL: Enables Python hot-reloading on file save
-    bench set-config -g developer_mode 1
-fi
+echo "Configuring common_site_config.json..."
+bench set-config -g db_host "$DB_HOST"
+bench set-config -g redis_cache "redis://$REDIS_CACHE:6379"
+bench set-config -g redis_queue "redis://$REDIS_QUEUE:6379"
+bench set-config -g redis_socketio "redis://$REDIS_QUEUE:6379"
+
+# CRITICAL: Enables Python hot-reloading on file save
+bench set-config -g developer_mode 1
 
 git config --global --add safe.directory '*'
 # 2. Dynamically Link and Install Custom Apps from Windows
@@ -42,7 +40,13 @@ shopt -u nullglob
 SITE_NAME="frontend"
 if [ ! -d "sites/$SITE_NAME" ]; then
     echo "Creating new site: $SITE_NAME..."
-    bench new-site "$SITE_NAME" --no-mariadb-socket --admin-password admin --db-root-username root --db-root-password admin
+    bench new-site "$SITE_NAME" \
+        --db-host "$DB_HOST" \
+        --mariadb-user-host-login-scope '%' \
+        --admin-password admin \
+        --db-root-username root \
+        --db-root-password admin
+        
     bench use "$SITE_NAME"
     
     # Iterate over all installed apps and enable them on the site
@@ -55,5 +59,8 @@ if [ ! -d "sites/$SITE_NAME" ]; then
 fi
 
 # 4. Start the Development Server
+echo "Generating Procfile for local development..."
+bench setup procfile
+
 echo "Starting Frappe Developer Environment..."
 exec bench start
