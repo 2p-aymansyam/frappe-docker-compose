@@ -58,6 +58,13 @@ if [ ! -d "sites/$SITE_NAME" ]; then
     done
 fi
 
+# --- ADD THE MIGRATE BLOCK HERE ---
+echo "Syncing database schema for $SITE_NAME..."
+# We use --skip-search-index to speed up dev restarts
+bench --site "$SITE_NAME" migrate
+bench --site "$SITE_NAME" clear-cache
+# ----------------------------------
+
 # 4. Start the Development Server
 echo "Generating Procfile for local development..."
 bench setup procfile
