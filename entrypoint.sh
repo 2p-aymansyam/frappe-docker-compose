@@ -12,6 +12,7 @@ bench set-config -g db_host "$DB_HOST"
 bench set-config -g redis_cache "redis://$REDIS_CACHE:6379"
 bench set-config -g redis_queue "redis://$REDIS_QUEUE:6379"
 bench set-config -g redis_socketio "redis://$REDIS_QUEUE:6379"
+bench set-config -g socketio_port 9000
 
 # CRITICAL: Enables Python hot-reloading on file save
 bench set-config -g developer_mode 1

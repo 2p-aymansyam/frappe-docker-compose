@@ -13,6 +13,10 @@ RUN apt-get update && apt-get install -y \
 # 2. Ensure permissions are correct
 RUN chown -R frappe:frappe /home/frappe/frappe-bench
 
+# Create a symlink at /opt/sites pointing to the actual sites folder
+# This fixes the relative path resolution for Vite builds in soft-linked apps
+RUN ln -s /home/frappe/frappe-bench/sites /opt/sites
+
 USER frappe
 WORKDIR /home/frappe/frappe-bench
 
