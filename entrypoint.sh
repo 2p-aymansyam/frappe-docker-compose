@@ -68,6 +68,7 @@ bench --site "$SITE_NAME" clear-cache
 
 # 4. Start the Development Server
 echo "Generating Procfile for local development..."
+rm -f Procfile
 bench setup procfile
 
 # Remove the Redis lines from the Procfile so Honcho doesn't try to run them
