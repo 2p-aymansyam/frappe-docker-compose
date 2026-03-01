@@ -24,8 +24,8 @@ for app_path in /opt/custom_apps/*; do
     # Verify it's a valid app folder by checking for setup files
     if [ -d "$app_path" ] && { [ -f "$app_path/setup.py" ] || [ -f "$app_path/pyproject.toml" ]; }; then
         app_name=$(basename "$app_path")
-
-                # Only get the app if it hasn't been linked into the bench yet
+        
+        # Only get the app if it hasn't been linked into the bench yet
         if [ ! -d "apps/$app_name" ]; then
             echo "Installing $app_name via bench get-app..."
             
@@ -37,43 +37,42 @@ for app_path in /opt/custom_apps/*; do
 done
 shopt -u nullglob
 
-# 3. Handle Multiple Sites
-# Split the SITES_LIST environment variable by comma
-IFS=',' read -ra ADDR <<< "$SITES_LIST"
-
-for SITE_NAME in "${ADDR[@]}"; do
-    if [ ! -d "sites/$SITE_NAME" ]; then
-        echo "Creating new site: $SITE_NAME..."
-        bench new-site "$SITE_NAME" \
-            --db-host "$DB_HOST" \
-            --mariadb-user-host-login-scope '%' \
-            --admin-password admin \
-            --db-root-username root \
-            --db-root-password admin
-    fi
-
-    echo "Syncing apps and migrations for $SITE_NAME..."
-    # Automatically install any custom apps found in /apps onto this site
-    for app_path in apps/*; do
-        app_name=$(basename "$app_path")
-        # Skip core frappe/erpnext as they are handled by new-site/bench
-        if [ "$app_name" != "frappe" ] && [ "$app_name" != "erpnext" ] && [ -d "$app_path" ]; then
-            echo "Ensuring $app_name is installed on $SITE_NAME..."
-            bench --site "$SITE_NAME" install-app "$app_name" || true
+# 3. Create the Default Site and Install Apps
+SITE_NAME="frontend"
+if [ ! -d "sites/$SITE_NAME" ]; then
+    echo "Creating new site: $SITE_NAME..."
+    bench new-site "$SITE_NAME" \
+        --db-host "$DB_HOST" \
+        --mariadb-user-host-login-scope '%' \
+        --admin-password admin \
+        --db-root-username root \
+        --db-root-password admin
+        
+    bench use "$SITE_NAME"
+    
+    # Iterate over all installed apps and enable them on the site
+    for app_name in $(cat sites/apps.txt); do
+        if [ "$app_name" != "frappe" ]; then
+            echo "Installing $app_name onto $SITE_NAME..."
+            bench --site "$SITE_NAME" install-app "$app_name"
         fi
     done
+fi
 
-    bench --site "$SITE_NAME" migrate
-    bench --site "$SITE_NAME" clear-cache
-done
+# --- ADD THE MIGRATE BLOCK HERE ---
+echo "Syncing database schema for $SITE_NAME..."
+# We use --skip-search-index to speed up dev restarts
+bench --site "$SITE_NAME" migrate
+bench --site "$SITE_NAME" clear-cache
+# ----------------------------------
 
 # 4. Start the Development Server
-echo "Generating Procfile..."
+echo "Generating Procfile for local development..."
 rm -f Procfile
 bench setup procfile
 
 # Remove the Redis lines from the Procfile so Honcho doesn't try to run them
 sed -i '/redis/d' Procfile
 
-echo "Starting Multi-tenant Frappe Environment..."
+echo "Starting Frappe Developer Environment..."
 exec bench start
