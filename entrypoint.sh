@@ -91,4 +91,5 @@ EOF
 sed -i '/redis/d' Procfile
 
 echo "Starting Multi-tenant Frappe Environment..."
+bench use frontend.localhost
 exec bench start
