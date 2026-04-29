@@ -70,7 +70,22 @@ done
 # 4. Start the Development Server
 echo "Generating Procfile..."
 rm -f Procfile
-bench setup procfile
+cat > Procfile <<EOF
+web: bench serve  
+
+
+socketio: /home/frappe/.nvm/versions/node/v20.19.2/bin/node apps/frappe/socketio.js
+
+
+watch: bench watch
+
+
+schedule: bench schedule
+
+worker:  bench worker 1>> logs/worker.log 2>> logs/worker.error.log
+
+EOF
+
 
 # Remove the Redis lines from the Procfile so Honcho doesn't try to run them
 sed -i '/redis/d' Procfile
